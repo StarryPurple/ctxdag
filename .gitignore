@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# Environment / tool working directories (not part of the repository)
+.agents/
+.codex/
+.venv/
+venv/
+
+# Downloaded model/benchmark assets and local scratch space
+data/
+tmp/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
