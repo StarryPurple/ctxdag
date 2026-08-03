@@ -77,6 +77,43 @@ def wait_until_ready(timeout: int = 480) -> bool:
     return False
 
 
+def parse_chat_response(resp: requests.Response, endpoint: str) -> str:
+    """Extract chat content from a chat-completions response; raise the
+    server's real error instead of a bare KeyError when the shape is wrong."""
+    try:
+        body = resp.json()
+    except requests.exceptions.JSONDecodeError:
+        raise RuntimeError(
+            f"{endpoint} returned non-JSON (status {resp.status_code}): "
+            f"{resp.text[:300]!r}"
+        ) from None
+    if not isinstance(body, dict):
+        raise RuntimeError(
+            f"{endpoint} unexpected body type {type(body).__name__} "
+            f"(status {resp.status_code}): {str(body)[:300]}"
+        )
+    error = body.get("error")
+    if error is not None:
+        raise RuntimeError(f"{endpoint} server error: {error}")
+    detail = body.get("detail")
+    if detail is not None:
+        raise RuntimeError(
+            f"{endpoint} error (status {resp.status_code}): {detail}"
+        )
+    choices = body.get("choices")
+    if not choices:
+        raise RuntimeError(
+            f"{endpoint} response has no 'choices' (status {resp.status_code}); "
+            f"body keys: {sorted(body)}"
+        )
+    content = choices[0].get("message", {}).get("content")
+    if content is None:
+        raise RuntimeError(
+            f"{endpoint} choice has no message.content: {body}"
+        )
+    return content.strip()
+
+
 def local_generate(prompt: str) -> str:
     resp = requests.post(
         "http://127.0.0.1:30000/v1/chat/completions",
@@ -92,16 +129,7 @@ def local_generate(prompt: str) -> str:
         },
         timeout=180,
     )
-    try:
-        body = resp.json()
-    except requests.exceptions.JSONDecodeError:
-        raise RuntimeError(
-            f"server returned non-JSON (status {resp.status_code}): "
-            f"{resp.text[:300]!r}"
-        ) from None
-    if "error" in body:
-        raise RuntimeError(f"server error: {body['error']}")
-    return body["choices"][0]["message"]["content"].strip()
+    return parse_chat_response(resp, "local sglang")
 
 
 def api_generate(prompt: str) -> str:
@@ -119,16 +147,7 @@ def api_generate(prompt: str) -> str:
         },
         timeout=180,
     )
-    try:
-        body = resp.json()
-    except requests.exceptions.JSONDecodeError:
-        raise RuntimeError(
-            f"api returned non-JSON (status {resp.status_code}): "
-            f"{resp.text[:300]!r}"
-        ) from None
-    if "error" in body:
-        raise RuntimeError(f"api error: {body['error']}")
-    return body["choices"][0]["message"]["content"].strip()
+    return parse_chat_response(resp, "api")
 
 
 class ScriptedModel:
