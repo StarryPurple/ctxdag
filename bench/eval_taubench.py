@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -90,7 +91,9 @@ def oracle_solve(env, task_index: int, tokenize, max_steps: int = 30):
     return {"reward": reward, "steps": steps, "prompt_tokens": prompt_tokens}
 
 
-def baseline_solve(env, task_index: int, model, tokenize, max_steps: int = 30):
+def baseline_solve(
+    env, task_index: int, model, tokenize, max_steps: int = 30, verbose: bool = False
+):
     env.reset(task_index=task_index)
     messages: list[dict] = [
         {"role": "system", "content": env.wiki},
@@ -104,8 +107,12 @@ def baseline_solve(env, task_index: int, model, tokenize, max_steps: int = 30):
         prompt_tokens += len(tokenize("\n".join(m["content"] for m in messages)))
         message = model(messages, env.tools_info)
         action = message_to_action(message)
+        if verbose:
+            print(f"    baseline step {steps + 1}: {action.name} {str(action.kwargs)[:80]}")
         messages.append(message)
         resp = env.step(action)
+        if verbose:
+            print(f"      -> {resp.observation[:100]}")
         reward = resp.reward
         done = resp.done
         steps += 1
@@ -125,7 +132,9 @@ def baseline_solve(env, task_index: int, model, tokenize, max_steps: int = 30):
     return {"reward": reward, "steps": steps, "prompt_tokens": prompt_tokens}
 
 
-def protocol_solve(env, task_index: int, model, tokenize, max_steps: int = 30):
+def protocol_solve(
+    env, task_index: int, model, tokenize, max_steps: int = 30, verbose: bool = False
+):
     env.reset(task_index=task_index)
     session = Session()
     first = session.register(content=env.task.instruction, refs=())
@@ -143,11 +152,15 @@ def protocol_solve(env, task_index: int, model, tokenize, max_steps: int = 30):
         ]
         message = model(messages, env.tools_info)
         action = message_to_action(message)
+        if verbose:
+            print(f"    protocol step {steps + 1}: {action.name} {str(action.kwargs)[:80]}")
         action_node = session.register(
             content=json.dumps(message, ensure_ascii=False),
             refs=(prev,),
         )
         resp = env.step(action)
+        if verbose:
+            print(f"      -> {resp.observation[:100]}")
         reward = resp.reward
         done = resp.done
         steps += 1
@@ -167,6 +180,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--max-steps", type=int, default=30)
     parser.add_argument("--out", default="tmp/eval_taubench.json")
+    parser.add_argument("--verbose", action="store_true", help="打印每步动作")
     parser.add_argument("--tokenizer", default="data/models/qwen3-4b-awq/tokenizer.json")
     args = parser.parse_args()
 
@@ -185,16 +199,37 @@ def main() -> None:
 
     Path("tmp").mkdir(exist_ok=True)
     rows = []
-    for idx in range(len(tasks)):
+    n_tasks = len(tasks)
+    t0 = time.time()
+    for idx in range(n_tasks):
+        print(
+            f"[{time.strftime('%H:%M:%S')}] task {idx + 1}/{n_tasks} 开始",
+            flush=True,
+        )
         row = {"task_index": idx}
         row["oracle"] = oracle_solve(env, idx, tokenize, args.max_steps)
-        row["baseline"] = baseline_solve(env, idx, model, tokenize, args.max_steps)
-        row["protocol"] = protocol_solve(env, idx, model, tokenize, args.max_steps)
+        row["baseline"] = baseline_solve(
+            env, idx, model, tokenize, args.max_steps, args.verbose
+        )
+        row["protocol"] = protocol_solve(
+            env, idx, model, tokenize, args.max_steps, args.verbose
+        )
         rows.append(row)
+        with open(args.out, "w") as f:
+            json.dump(
+                {"rows": rows, "n_done": len(rows), "n_total": n_tasks},
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        elapsed = time.time() - t0
+        eta = elapsed / (idx + 1) * (n_tasks - idx - 1)
         print(
-            f"task {idx}: oracle={row['oracle']['reward']} "
-            f"baseline={row['baseline']['reward']} "
-            f"protocol={row['protocol']['reward']}"
+            f"[{time.strftime('%H:%M:%S')}] task {idx + 1}/{n_tasks} 完成: "
+            f"oracle={row['oracle']['reward']} baseline={row['baseline']['reward']} "
+            f"protocol={row['protocol']['reward']} "
+            f"elapsed={elapsed:.0f}s eta~{eta:.0f}s",
+            flush=True,
         )
 
     def aggregate(key):

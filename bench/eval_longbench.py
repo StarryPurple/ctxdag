@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, "src")
@@ -54,10 +55,21 @@ def protocol_context(rec: dict, tokenize, decode, max_tokens: int, prune: bool =
     return ctx.text
 
 
-def run_condition(name: str, build_prompt, records, model, tokenize, decode, max_tokens):
+def run_condition(
+    name: str,
+    build_prompt,
+    records,
+    model,
+    tokenize,
+    decode,
+    max_tokens,
+    on_record=None,
+):
     scores = []
     outputs = []
-    for rec in records:
+    n = len(records)
+    t0 = time.time()
+    for i, rec in enumerate(records):
         prompt = build_prompt(rec, tokenize, decode, max_tokens)
         prediction = model(prompt)
         answers = rec["answers"] if isinstance(rec["answers"], list) else [rec["answers"]]
@@ -71,6 +83,8 @@ def run_condition(name: str, build_prompt, records, model, tokenize, decode, max
                 "prediction": prediction[:200],
             }
         )
+        if on_record is not None:
+            on_record(name, i, n, score, time.time() - t0, scores, outputs)
     mean = sum(scores) / len(scores) if scores else 0.0
     return mean, scores, outputs
 
@@ -112,8 +126,35 @@ def main() -> None:
         "pruned": lambda rec, t, d, m: protocol_context(rec, t, d, m, prune=True),
     }
     for cond, builder in conditions.items():
+        def on_record(cond, i, n, score, elapsed, scores, outputs):
+            eta = elapsed / (i + 1) * (n - i - 1)
+            print(
+                f"[{time.strftime('%H:%M:%S')}] {cond:>8} "
+                f"record {i + 1}/{n} score={score:.4f} "
+                f"elapsed={elapsed:.0f}s eta~{eta:.0f}s",
+                flush=True,
+            )
+            report["conditions"][cond] = {
+                "mean": sum(scores) / len(scores),
+                "n": len(scores),
+                "scores": scores,
+                "outputs": outputs,
+            }
+            _save()
+
+        def _save():
+            with open(args.out, "w") as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+
         mean, scores, outputs = run_condition(
-            cond, builder, records, model, tokenize, decode, args.max_tokens
+            cond,
+            builder,
+            records,
+            model,
+            tokenize,
+            decode,
+            args.max_tokens,
+            on_record=on_record,
         )
         report["conditions"][cond] = {
             "mean": mean,
@@ -121,6 +162,7 @@ def main() -> None:
             "scores": scores,
             "outputs": outputs,
         }
+        _save()
         print(f"[{cond}] n={len(scores)} mean={mean:.4f}")
 
     with open(args.out, "w") as f:
