@@ -21,6 +21,7 @@ sys.path.insert(0, "src")
 
 from contextdag import Accountant, render_node  # noqa: E402
 
+from adapters import longbench, taubench  # noqa: E402
 from workflows import (  # noqa: E402
     BenchSession,
     refund_policy,
@@ -85,6 +86,53 @@ def run_workflow(name: str, build: callable, tokenize) -> None:
             print(f"  {nid} 出现 {stat.appearances} 次, 块 {stat.block_tokens} tok")
 
 
+def run_dataset(
+    name: str,
+    iter_samples: callable,
+    tokenize,
+    limit: int,
+) -> None:
+    """Replay real-dataset samples into one shared cache (a persistent
+    engine cache spanning sessions) and report aggregate reuse."""
+    acct = Accountant(tokenize)
+    baseline_total = 0
+    samples = 0
+    for builder in iter_samples(limit=limit):
+        bench = BenchSession()
+        builder(bench)
+        registry = bench.registry
+        for ctx, base in zip(bench.ctxs, bench.baselines):
+            marker = "\n\n<目录 可申请范围>"
+            catalog = ctx.text.split(marker, 1)[1] if marker in ctx.text else None
+            acct.account(
+                ctx.text,
+                order=ctx.order,
+                node_blocks=lambda nid: render_node(registry.get(nid)),
+                catalog_text=catalog,
+            )
+            baseline_total += len(tokenize(base))
+        samples += 1
+
+    dep_tokens = acct.total_prompt_tokens
+    savings = 1 - dep_tokens / baseline_total if baseline_total else 0.0
+    catalog_total = sum(t.catalog_tokens for t in acct.turns)
+    mean_hit = (
+        sum(t.hit_rate for t in acct.turns) / len(acct.turns) if acct.turns else 0.0
+    )
+    print(f"\n=== {name}（{samples} 样本, {len(acct.turns)} 次展开, 共享缓存）===")
+    print(
+        f"发送 {dep_tokens} tok, 复用 {acct.total_cached_tokens} "
+        f"(总体 {acct.overall_hit_rate:.1%}, 每轮平均 {mean_hit:.1%})"
+    )
+    print(f"目录开销: {catalog_total} tok ({catalog_total / dep_tokens:.1%} of 发送量)")
+    print(f"基线(全量上下文): {baseline_total} tok → 依赖集模式节省 {savings:.1%}")
+    top = sorted(acct.nodes.items(), key=lambda kv: (-kv[1].appearances, kv[0]))
+    if top:
+        print("节点复用 Top:")
+        for nid, stat in top[:5]:
+            print(f"  {nid} 出现 {stat.appearances} 次, 块 {stat.block_tokens} tok")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -96,8 +144,31 @@ def main() -> None:
         choices=["sequential_chat", "shared_knowledge", "refund_policy"],
         default=None,
     )
+    parser.add_argument(
+        "--dataset",
+        choices=["taubench", "longbench"],
+        default=None,
+        help="在真实测试集上运行（共享缓存跨样本）",
+    )
+    parser.add_argument("--limit", type=int, default=10, help="每数据集样本数")
     args = parser.parse_args()
     tokenize = load_tokenize(args.tokenizer)
+    if args.dataset == "taubench":
+        run_dataset(
+            f"tau-bench（gpt-4o-retail，前 {args.limit} 条轨迹）",
+            taubench.iter_samples,
+            tokenize,
+            args.limit,
+        )
+        return
+    if args.dataset == "longbench":
+        run_dataset(
+            f"LongBench（multi_news_e，前 {args.limit} 篇文档，渐进阅读）",
+            longbench.iter_samples,
+            tokenize,
+            args.limit,
+        )
+        return
     workflows = {
         "sequential_chat": (sequential_chat, "顺序对话链（前缀持续增长）"),
         "shared_knowledge": (shared_knowledge, "共享知识 + agent spawn 树"),
