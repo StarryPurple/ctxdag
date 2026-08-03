@@ -11,13 +11,34 @@ import json
 import re
 
 LONGBENCH_PATH = "data/longbench/data/{dataset}.jsonl"
+DEFAULT_DATASETS = [
+    "multi_news_e",
+    "2wikimqa_e",
+    "hotpotqa_e",
+    "triviaqa_e",
+    "gov_report_e",
+    "qasper_e",
+    "multifieldqa_en_e",
+    "passage_count_e",
+    "trec_e",
+    "samsum_e",
+]
 
 
-def iter_samples(dataset: str = "multi_news_e", limit: int = 5, max_sections: int = 8):
-    with open(LONGBENCH_PATH.format(dataset=dataset)) as f:
-        records = [json.loads(line) for line in f][:limit]
-    for rec in records:
-        yield build_from_document(split_sections(rec["context"], max_sections))
+def iter_samples(
+    dataset: str | None = None,
+    limit: int = 5,
+    max_sections: int = 8,
+    datasets=None,
+):
+    """Yield progressive-reading builders; all default datasets when
+    ``dataset`` is omitted."""
+    names = [dataset] if dataset else (datasets or DEFAULT_DATASETS)
+    for name in names:
+        with open(LONGBENCH_PATH.format(dataset=name)) as f:
+            records = [json.loads(line) for line in f][:limit]
+        for rec in records:
+            yield build_from_document(split_sections(rec["context"], max_sections))
 
 
 def split_sections(context: str, max_sections: int) -> list[str]:

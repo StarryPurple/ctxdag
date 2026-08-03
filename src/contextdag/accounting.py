@@ -48,6 +48,7 @@ class NodeStat:
 @dataclass
 class Accountant:
     tokenize: Tokenizer
+    window: int | None = None
     _seen: list[tuple[int, ...]] = field(default_factory=list, init=False)
     turns: list[TurnStats] = field(default_factory=list, init=False)
     nodes: dict[str, NodeStat] = field(default_factory=dict, init=False)
@@ -59,10 +60,15 @@ class Accountant:
         node_blocks: Callable[[str], str] | None = None,
         catalog_text: str | None = None,
     ) -> TurnStats:
-        """Record one expanded context and return its reuse stats."""
+        """Record one expanded context and return its reuse stats.
+
+        ``window`` bounds how many previous contexts are compared (an
+        eviction-like proxy for large runs); None compares against all.
+        """
         ids = tuple(self.tokenize(text))
         cached = 0
-        for prev in self._seen:
+        start = len(self._seen) - self.window if self.window else 0
+        for prev in self._seen[start:]:
             cached = max(cached, lcp_len(ids, prev))
         self._seen.append(ids)
         stats = TurnStats(

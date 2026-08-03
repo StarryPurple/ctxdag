@@ -9,14 +9,24 @@ from __future__ import annotations
 
 import json
 
-TAU_PATH = "data/tau-bench/historical_trajectories/gpt-4o-retail.json"
+TAU_FILES = {
+    "gpt-4o-retail": "data/tau-bench/historical_trajectories/gpt-4o-retail.json",
+    "gpt-4o-airline": "data/tau-bench/historical_trajectories/gpt-4o-airline.json",
+    "sonnet-35-new-retail": "data/tau-bench/historical_trajectories/sonnet-35-new-retail.json",
+    "sonnet-35-new-airline": "data/tau-bench/historical_trajectories/sonnet-35-new-airline.json",
+}
 
 
-def iter_samples(limit: int = 10, path: str = TAU_PATH):
-    with open(path) as f:
-        data = json.load(f)
-    for rec in data[:limit]:
-        yield build_from_trajectory(rec["traj"])
+def iter_samples(limit: int = 10, path: str | None = None, domains=None):
+    """Yield trajectory replay builders; all domains when ``path`` omitted."""
+    paths = [path] if path else [
+        TAU_FILES[d] for d in (domains or list(TAU_FILES))
+    ]
+    for p in paths:
+        with open(p) as f:
+            data = json.load(f)
+        for rec in data[:limit]:
+            yield build_from_trajectory(rec["traj"])
 
 
 def build_from_trajectory(traj: list[dict]):

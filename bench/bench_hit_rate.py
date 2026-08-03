@@ -91,10 +91,11 @@ def run_dataset(
     iter_samples: callable,
     tokenize,
     limit: int,
+    window: int | None = 64,
 ) -> None:
     """Replay real-dataset samples into one shared cache (a persistent
     engine cache spanning sessions) and report aggregate reuse."""
-    acct = Accountant(tokenize)
+    acct = Accountant(tokenize, window=window)
     baseline_total = 0
     samples = 0
     for builder in iter_samples(limit=limit):
@@ -151,6 +152,12 @@ def main() -> None:
         help="在真实测试集上运行（共享缓存跨样本）",
     )
     parser.add_argument("--limit", type=int, default=10, help="每数据集样本数")
+    parser.add_argument(
+        "--window",
+        type=int,
+        default=64,
+        help="Accountant 比较的最近上下文数（eviction 代理）",
+    )
     args = parser.parse_args()
     tokenize = load_tokenize(args.tokenizer)
     if args.dataset == "taubench":
@@ -159,14 +166,16 @@ def main() -> None:
             taubench.iter_samples,
             tokenize,
             args.limit,
+            args.window,
         )
         return
     if args.dataset == "longbench":
         run_dataset(
-            f"LongBench（multi_news_e，前 {args.limit} 篇文档，渐进阅读）",
+            f"LongBench（{args.limit} 篇/数据集 × 10 数据集，渐进阅读）",
             longbench.iter_samples,
             tokenize,
             args.limit,
+            args.window,
         )
         return
     workflows = {
