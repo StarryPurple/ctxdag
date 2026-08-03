@@ -55,6 +55,16 @@ def protocol_context(rec: dict, tokenize, decode, max_tokens: int, prune: bool =
     return ctx.text
 
 
+def instruction_for(rec: dict) -> str:
+    """Match the answer instruction to the record's language so the model
+    doesn't default to Chinese for English tasks."""
+    text = (rec.get("input") or "") + rec["context"][:200]
+    has_cjk = any("\u4e00" <= ch <= "\u9fff" for ch in text)
+    if has_cjk:
+        return "请直接给出答案，不要输出思考过程。"
+    return "Answer directly in English, without any thinking process."
+
+
 def run_condition(
     name: str,
     build_prompt,
@@ -119,20 +129,23 @@ def main() -> None:
 
     Path("tmp").mkdir(exist_ok=True)
     report = {"backend": args.backend, "conditions": {}}
-    ANSWER_INSTRUCTION = "请直接给出答案，不要输出任何思考过程。"
     conditions = {
         "full": lambda rec, t, d, m: truncate(
-            rec["context"] + "\n\n" + (rec.get("input") or "") + "\n\n" + ANSWER_INSTRUCTION,
+            rec["context"]
+            + "\n\n"
+            + (rec.get("input") or "")
+            + "\n\n"
+            + instruction_for(rec),
             t,
             d,
             m,
         ),
         "protocol": lambda rec, t, d, m: protocol_context(rec, t, d, m)
         + "\n\n"
-        + ANSWER_INSTRUCTION,
+        + instruction_for(rec),
         "pruned": lambda rec, t, d, m: protocol_context(rec, t, d, m, prune=True)
         + "\n\n"
-        + ANSWER_INSTRUCTION,
+        + instruction_for(rec),
     }
     for cond, builder in conditions.items():
         def on_record(cond, i, n, score, elapsed, scores, outputs):
