@@ -52,6 +52,7 @@ ctx2 = session.require("9a3f6c1f...")   # page_faults + 1
 ```bash
 uv sync                      # 安装依赖（协议层本身只依赖标准库）
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v   # 运行全部测试
+PYTHONPATH=src .venv/bin/python bench/bench_hit_rate.py            # 离线命中率基准（radix 缓存代理）
 PYTHONPATH=src .venv/bin/python demo/chat.py --backend scripted --verbose  # 端到端冒烟（无需模型）
 PYTHONPATH=src .venv/bin/python demo/chat.py --backend local --verbose      # 本地 SGLang（需 GPU）
 ```

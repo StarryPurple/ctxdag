@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Sequence
 
 from .node import Node, NodeError
 from .registry import Registry
@@ -35,19 +36,33 @@ def render_node(node: Node, placeholder: bool = False) -> str:
     return f"{header}\n{node.content}"
 
 
-def topological_order(nodes: dict[str, Node]) -> list[Node]:
-    """Deterministic topo order: dependencies first, ties by node id."""
+def topological_order(
+    nodes: dict[str, Node],
+    registration: Sequence[str] | None = None,
+) -> list[Node]:
+    """Deterministic topo order: dependencies first, same-depth ties by
+    registration order (early-registered shared roots lead the prefix),
+    falling back to node id for unknown nodes."""
+    rank = (
+        {nid: i for i, nid in enumerate(registration)}
+        if registration is not None
+        else {}
+    )
+
+    def key(nid: str) -> tuple[int, str]:
+        return (rank.get(nid, 1 << 30), nid)
+
     indegree = {nid: len(n.refs) for nid, n in nodes.items()}
     children: dict[str, list[str]] = {nid: [] for nid in nodes}
     for nid, node in nodes.items():
         for dep in node.refs:
             children[dep].append(nid)
-    ready = deque(sorted(nid for nid, deg in indegree.items() if deg == 0))
+    ready = deque(sorted((nid for nid, deg in indegree.items() if deg == 0), key=key))
     order: list[Node] = []
     while ready:
         nid = ready.popleft()
         order.append(nodes[nid])
-        for child in sorted(children[nid]):
+        for child in sorted(children[nid], key=key):
             indegree[child] -= 1
             if indegree[child] == 0:
                 ready.append(child)
@@ -121,7 +136,7 @@ class Expander:
         if not nodes and not catalog_ids:
             return ExpandedContext(text="", order=(), positions={}, catalog=())
 
-        order = topological_order(nodes)
+        order = topological_order(nodes, self._registry.registration_order())
         depth = depth_of(self._registry, refs)
         blocks: list[str] = []
         positions: dict[str, int] = {}

@@ -49,6 +49,10 @@ class Registry:
             return ()
         return tuple(self._order[-count:])
 
+    def registration_order(self) -> tuple[str, ...]:
+        """All node ids in registration order (stable; nodes are immutable)."""
+        return tuple(self._order)
+
     def nodes(self) -> list[Node]:
         return sorted(self._nodes.values(), key=lambda n: n.id)
 
