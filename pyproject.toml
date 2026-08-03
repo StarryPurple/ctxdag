@@ -1,0 +1,17 @@
+[project]
+name = "contextdag"
+version = "0.1.0"
+description = "Content-addressed, dependency-aware agent context runtime"
+requires-python = ">=3.12"
+dependencies = [
+    "datasets",
+    "huggingface-hub",
+    "requests",
+    "tokenizers",
+]
+
+[project.optional-dependencies]
+engine = ["sglang[all]"]
+
+[tool.uv]
+package = false
