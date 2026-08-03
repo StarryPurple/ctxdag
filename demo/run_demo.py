@@ -123,7 +123,6 @@ def local_generate(prompt: str) -> str:
                 {"role": "system", "content": "你是上下文感知的助手。"},
                 {"role": "user", "content": prompt},
             ],
-            "chat_template_kwargs": {"enable_thinking": False},
             "max_tokens": 1024,
             "temperature": 0.3,
         },
