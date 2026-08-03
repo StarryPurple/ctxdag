@@ -26,7 +26,7 @@ sys.path.insert(0, "bench")
 from contextdag import Session  # noqa: E402
 
 from adapters.longbench import LONGBENCH_PATH, split_sections  # noqa: E402
-from eval_metrics import score_prediction  # noqa: E402
+from eval_metrics import score_prediction, strip_think  # noqa: E402
 from model_backends import load_tokenize, make_text_model  # noqa: E402
 
 
@@ -71,7 +71,7 @@ def run_condition(
     t0 = time.time()
     for i, rec in enumerate(records):
         prompt = build_prompt(rec, tokenize, decode, max_tokens)
-        prediction = model(prompt)
+        prediction = strip_think(model(prompt))
         answers = rec["answers"] if isinstance(rec["answers"], list) else [rec["answers"]]
         score = score_prediction(rec["dataset"], prediction, answers)
         scores.append(score)
@@ -100,12 +100,13 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--max-tokens", type=int, default=8000)
+    parser.add_argument("--max-output-tokens", type=int, default=512)
     parser.add_argument("--out", default="tmp/eval_longbench.json")
     parser.add_argument("--tokenizer", default="data/models/qwen3-4b-awq/tokenizer.json")
     args = parser.parse_args()
 
     tokenize, decode = load_tokenize(args.tokenizer)
-    model = make_text_model(args.backend)
+    model = make_text_model(args.backend, max_tokens=args.max_output_tokens)
     datasets = [d.strip() for d in args.datasets.split(",") if d.strip()]
 
     records = []
@@ -118,12 +119,20 @@ def main() -> None:
 
     Path("tmp").mkdir(exist_ok=True)
     report = {"backend": args.backend, "conditions": {}}
+    ANSWER_INSTRUCTION = "请直接给出答案，不要输出任何思考过程。"
     conditions = {
         "full": lambda rec, t, d, m: truncate(
-            rec["context"] + "\n\n" + (rec.get("input") or ""), t, d, m
+            rec["context"] + "\n\n" + (rec.get("input") or "") + "\n\n" + ANSWER_INSTRUCTION,
+            t,
+            d,
+            m,
         ),
-        "protocol": lambda rec, t, d, m: protocol_context(rec, t, d, m),
-        "pruned": lambda rec, t, d, m: protocol_context(rec, t, d, m, prune=True),
+        "protocol": lambda rec, t, d, m: protocol_context(rec, t, d, m)
+        + "\n\n"
+        + ANSWER_INSTRUCTION,
+        "pruned": lambda rec, t, d, m: protocol_context(rec, t, d, m, prune=True)
+        + "\n\n"
+        + ANSWER_INSTRUCTION,
     }
     for cond, builder in conditions.items():
         def on_record(cond, i, n, score, elapsed, scores, outputs):

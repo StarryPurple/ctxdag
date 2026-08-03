@@ -13,6 +13,17 @@ def normalize_answer(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def strip_think(text: str) -> str:
+    """Remove a leading Qwen-style <think>...</think> block."""
+    t = text.lstrip()
+    if t.startswith("<think>"):
+        end = t.find("</think>")
+        if end != -1:
+            return t[end + len("</think>") :].strip()
+        return ""  # reasoning not finished -> no answer produced
+    return text
+
+
 def tokenize_words(text: str) -> list[str]:
     """Split normalized text into words (CJK chars count as one word each)."""
     norm = normalize_answer(text)

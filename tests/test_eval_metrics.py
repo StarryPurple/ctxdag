@@ -12,6 +12,7 @@ from eval_metrics import (  # noqa: E402
     normalize_answer,
     rouge_l_f1,
     score_prediction,
+    strip_think,
 )
 
 
@@ -43,6 +44,14 @@ class EvalMetricsTest(unittest.TestCase):
         self.assertAlmostEqual(score_prediction("triviaqa_e", "the answer", ["the answer"]), 1.0)
         self.assertAlmostEqual(score_prediction("multi_news_e", "a b", ["a b"]), 1.0)
         self.assertAlmostEqual(score_prediction("trec_e", "yes", ["yes"]), 1.0)
+
+    def test_strip_think(self):
+        self.assertEqual(
+            strip_think("<think>reasoning</think> the answer"),
+            "the answer",
+        )
+        self.assertEqual(strip_think("<think>unfinished"), "")
+        self.assertEqual(strip_think("no think block"), "no think block")
 
 
 if __name__ == "__main__":

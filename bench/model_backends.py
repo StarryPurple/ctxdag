@@ -28,7 +28,11 @@ def _post_chat(base: str, key: str | None, payload: dict) -> dict:
     return body
 
 
-def make_text_model(backend: str = "scripted", base: str | None = None):
+def make_text_model(
+    backend: str = "scripted",
+    base: str | None = None,
+    max_tokens: int = 512,
+):
     """Return ``callable(prompt) -> str``."""
     if backend == "local":
         url = base or "http://127.0.0.1:30000/v1"
@@ -41,7 +45,7 @@ def make_text_model(backend: str = "scripted", base: str | None = None):
                 {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 512,
+                    "max_tokens": max_tokens,
                     "temperature": 0.0,
                 },
             )
@@ -60,7 +64,7 @@ def make_text_model(backend: str = "scripted", base: str | None = None):
                 {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 512,
+                    "max_tokens": max_tokens,
                     "temperature": 0.0,
                 },
             )
