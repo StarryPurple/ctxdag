@@ -4,6 +4,7 @@ Same LongBench questions answered under three context conditions:
   full     - raw document as-is (vanilla baseline)
   protocol - document split into section nodes, rendered as a dependency set
   pruned   - dependency set restricted to the first half of sections
+  no-headers - sections joined without node headers (isolates header cost)
 
 Metrics follow LongBench conventions (F1 / ROUGE-L / accuracy per dataset).
 
@@ -65,6 +66,24 @@ def instruction_for(rec: dict) -> str:
     return "Answer directly in English, without any thinking process."
 
 
+RETRY_INSTRUCTION = "只输出最终答案本身，不要任何解释、思考或前后缀。"
+
+
+def no_headers_context(rec: dict, tokenize, decode, max_tokens: int) -> str:
+    """Sections joined as plain text (same sectioning as protocol, no node
+    headers), to separate 'sectioning' from 'node headers'."""
+    sections = split_sections(rec["context"], 8)
+    body = "\n\n".join(
+        truncate(sec, tokenize, decode, max_tokens) for sec in sections
+    )
+    return truncate(
+        body + "\n\n" + (rec.get("input") or ""),
+        tokenize,
+        decode,
+        max_tokens,
+    )
+
+
 def run_condition(
     name: str,
     build_prompt,
@@ -81,7 +100,13 @@ def run_condition(
     t0 = time.time()
     for i, rec in enumerate(records):
         prompt = build_prompt(rec, tokenize, decode, max_tokens)
-        prediction = strip_think(model(prompt))
+        raw = model(prompt)
+        prediction = strip_think(raw)
+        retries = 0
+        while not prediction.strip() and retries < 2:
+            raw = model(prompt + "\n\n" + RETRY_INSTRUCTION)
+            prediction = strip_think(raw)
+            retries += 1
         answers = rec["answers"] if isinstance(rec["answers"], list) else [rec["answers"]]
         score = score_prediction(rec["dataset"], prediction, answers)
         scores.append(score)
@@ -91,6 +116,8 @@ def run_condition(
                 "dataset": rec["dataset"],
                 "score": score,
                 "prediction": prediction[:200],
+                "raw_prediction": raw[:500],
+                "retries": retries,
             }
         )
         if on_record is not None:
@@ -110,7 +137,7 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--max-tokens", type=int, default=8000)
-    parser.add_argument("--max-output-tokens", type=int, default=512)
+    parser.add_argument("--max-output-tokens", type=int, default=1024)
     parser.add_argument("--out", default="tmp/eval_longbench.json")
     parser.add_argument("--tokenizer", default="data/models/qwen3-4b-awq/tokenizer.json")
     args = parser.parse_args()
@@ -144,6 +171,9 @@ def main() -> None:
         + "\n\n"
         + instruction_for(rec),
         "pruned": lambda rec, t, d, m: protocol_context(rec, t, d, m, prune=True)
+        + "\n\n"
+        + instruction_for(rec),
+        "no-headers": lambda rec, t, d, m: no_headers_context(rec, t, d, m)
         + "\n\n"
         + instruction_for(rec),
     }
