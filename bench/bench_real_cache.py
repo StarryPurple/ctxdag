@@ -28,6 +28,7 @@ import requests
 sys.path.insert(0, "src")
 sys.path.insert(0, "bench")
 
+from model_backends import _discover_local_model  # noqa: E402
 from workflows import (  # noqa: E402
     BenchSession,
     refund_policy,
@@ -160,10 +161,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get(
-            "LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq"
-        ),
-        help="model name served by the endpoint",
+        default=None,
+        help="model name served by the endpoint; auto-discovered when omitted",
     )
     parser.add_argument(
         "--metrics-url",
@@ -185,6 +184,9 @@ def main() -> None:
         default="results/bench_real_cache.json",
     )
     args = parser.parse_args()
+
+    if args.model is None:
+        args.model = os.environ.get("LOCAL_MODEL_NAME") or _discover_local_model(args.base)
 
     metrics_url = args.metrics_url or f"{_server_root(args.base)}/metrics"
     build, label = WORKFLOWS[args.workflow]

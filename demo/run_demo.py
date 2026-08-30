@@ -25,9 +25,23 @@ from contextdag import Session, parse_directives
 LOCAL_BASE_URL = os.environ.get(
     "LOCAL_BASE_URL", "http://127.0.0.1:30000/v1"
 )
-LOCAL_MODEL_NAME = os.environ.get(
-    "LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq"
-)
+
+
+def _discover_local_model() -> str:
+    """Return the first model id served by the local endpoint."""
+    try:
+        resp = requests.get(f"{LOCAL_BASE_URL}/models", timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        models = data.get("data") or []
+        if models and models[0].get("id"):
+            return models[0]["id"]
+    except Exception:
+        pass
+    return "data/models/qwen3-4b-awq"
+
+
+LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME") or _discover_local_model()
 
 
 def parse_chat_response(resp: requests.Response, endpoint: str) -> str:
