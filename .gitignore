@@ -23,3 +23,6 @@ sandbox/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
+
+# Generated benchmark outputs
+results/
