@@ -16,7 +16,7 @@ import requests
 
 sys.path.insert(0, "src")
 from contextdag import ContextAgent, Session, parse_directives
-from run_demo import api_generate, local_generate, server_alive, start_server, wait_until_ready
+from run_demo import api_generate, local_generate
 
 
 def scripted_chat(prompt: str) -> str:
@@ -69,20 +69,9 @@ def main() -> None:
         action="store_true",
         help="启用脚本化摘要服务（演示懒加载摘要生成）",
     )
-    parser.add_argument("--start-server", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
 
     if args.backend == "local":
-        if args.start_server and not server_alive():
-            try:
-                start_server()
-            except FileNotFoundError as exc:
-                print(f"[chat] {exc}")
-                sys.exit(1)
-            if not wait_until_ready():
-                print("[chat] server failed to start; see tmp/server.log")
-                sys.exit(1)
-            print("[chat] server ready.")
         model = local_generate
     elif args.backend == "api":
         model = api_generate
@@ -109,16 +98,8 @@ def main() -> None:
                 print(f"\n{agent.name}: {raw}")
         except RuntimeError as exc:
             print(f"\n[chat] 请求失败: {exc}")
-            if args.backend == "local" and not server_alive():
-                print("[chat] 服务器已掉线，尝试重启 ...")
-                try:
-                    start_server()
-                    if wait_until_ready():
-                        print("[chat] 重启成功，请重发这条消息。")
-                    else:
-                        print("[chat] 重启失败；查看 tmp/server.log")
-                except FileNotFoundError as exc2:
-                    print(f"[chat] {exc2}")
+            if args.backend == "local":
+                print("[chat] 请确认本地 OpenAI 兼容服务已启动（例如 vLLM）。")
 
     if args.once:
         turn(args.once)

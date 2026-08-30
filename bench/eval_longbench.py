@@ -138,7 +138,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--max-tokens", type=int, default=8000)
     parser.add_argument("--max-output-tokens", type=int, default=1024)
-    parser.add_argument("--out", default="tmp/eval_longbench.json")
+    parser.add_argument("--out", default="results/eval_longbench.json")
     parser.add_argument("--tokenizer", default="data/models/qwen3-4b-awq/tokenizer.json")
     args = parser.parse_args()
 
@@ -154,7 +154,7 @@ def main() -> None:
                 if len([r for r in records if r["dataset"] == name]) >= args.limit:
                     break
 
-    Path("tmp").mkdir(exist_ok=True)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     report = {"backend": args.backend, "conditions": {}}
     conditions = {
         "full": lambda rec, t, d, m: truncate(

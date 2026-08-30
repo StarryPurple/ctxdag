@@ -11,9 +11,9 @@ __pycache__/
 .venv/
 venv/
 
-# Downloaded model/benchmark assets and local scratch space
+# Downloaded model/benchmark assets and local scratch/reusable artifacts
 data/
-tmp/
+sandbox/
 
 # Editor / OS
 .idea/

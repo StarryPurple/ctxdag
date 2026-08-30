@@ -56,7 +56,20 @@ PYTHONPATH=src .venv/bin/python bench/bench_hit_rate.py            # 离线命�
 PYTHONPATH=src .venv/bin/python bench/bench_hit_rate.py --dataset taubench --limit 10   # 真实测试集：tau-bench 轨迹
 PYTHONPATH=src .venv/bin/python bench/bench_hit_rate.py --dataset longbench --limit 10  # 真实测试集：LongBench 长文档
 PYTHONPATH=src .venv/bin/python demo/chat.py --backend scripted --verbose  # 端到端冒烟（无需模型）
-PYTHONPATH=src .venv/bin/python demo/chat.py --backend local --verbose      # 本地 SGLang（需 GPU）
+PYTHONPATH=src .venv/bin/python demo/chat.py --backend local --verbose      # 本地 vLLM（需 GPU）
+
+本地真实引擎（vLLM + Qwen3-4B-AWQ）：
+
+```bash
+uv sync --extra engine
+scripts/start_vllm.sh
+```
+
+`--backend local` 默认连接 `http://127.0.0.1:30000/v1`，可通过
+`LOCAL_BASE_URL` 和 `LOCAL_MODEL_NAME` 环境变量覆盖。
+启动脚本标准参数为 `max-model-len=8192`、`gpu-memory-utilization=0.8`、
+`--enforce-eager`，并开启 prefix caching、`prompt_tokens_details` 与
+Qwen3 工具调用解析。
 ```
 
 `demo/chat.py` 支持 `--backend scripted|api|local`、`--catalog-size`（默认 1024）、

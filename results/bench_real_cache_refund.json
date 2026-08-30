@@ -1,0 +1,70 @@
+{
+  "workflow": "refund_policy",
+  "metrics_url": "http://127.0.0.1:30000/metrics",
+  "protocol": {
+    "name": "refund_policy",
+    "n_turns": 3,
+    "prompt_tokens": 380,
+    "cached_tokens": 64,
+    "cache_source": "api",
+    "metric_queries": 380,
+    "metric_hits": 64,
+    "hit_rate": 0.16842105263157894,
+    "turns": [
+      {
+        "prompt_tokens": 93,
+        "cached_tokens": 0,
+        "completion_tokens": 1,
+        "turn": 1,
+        "text_len": 117
+      },
+      {
+        "prompt_tokens": 122,
+        "cached_tokens": 32,
+        "completion_tokens": 1,
+        "turn": 2,
+        "text_len": 164
+      },
+      {
+        "prompt_tokens": 165,
+        "cached_tokens": 32,
+        "completion_tokens": 1,
+        "turn": 3,
+        "text_len": 221
+      }
+    ]
+  },
+  "baseline": {
+    "name": "baseline",
+    "n_turns": 3,
+    "prompt_tokens": 366,
+    "cached_tokens": 144,
+    "cache_source": "api",
+    "metric_queries": 366,
+    "metric_hits": 144,
+    "hit_rate": 0.39344262295081966,
+    "turns": [
+      {
+        "prompt_tokens": 86,
+        "cached_tokens": 80,
+        "completion_tokens": 1,
+        "turn": 1,
+        "text_len": 105
+      },
+      {
+        "prompt_tokens": 115,
+        "cached_tokens": 64,
+        "completion_tokens": 1,
+        "turn": 2,
+        "text_len": 152
+      },
+      {
+        "prompt_tokens": 165,
+        "cached_tokens": 0,
+        "completion_tokens": 1,
+        "turn": 3,
+        "text_len": 221
+      }
+    ]
+  }
+}

@@ -35,8 +35,8 @@ def make_text_model(
 ):
     """Return ``callable(prompt) -> str``."""
     if backend == "local":
-        url = base or "http://127.0.0.1:30000/v1"
-        model = "data/models/qwen3-4b-awq"
+        url = base or os.environ.get("LOCAL_BASE_URL", "http://127.0.0.1:30000/v1")
+        model = os.environ.get("LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq")
 
         def text(prompt: str) -> str:
             body = _post_chat(
@@ -81,8 +81,8 @@ def make_text_model(
 def make_agent_model(backend: str = "scripted"):
     """Return ``callable(messages, tools) -> message-dict`` (OpenAI style)."""
     if backend == "local":
-        url = "http://127.0.0.1:30000/v1"
-        model = "data/models/qwen3-4b-awq"
+        url = os.environ.get("LOCAL_BASE_URL", "http://127.0.0.1:30000/v1")
+        model = os.environ.get("LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq")
 
         def agent(messages: list[dict], tools: list[dict] | None) -> dict:
             body = _post_chat(

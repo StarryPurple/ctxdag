@@ -5,7 +5,7 @@ model sees (dependency set + catalog), the model's raw tagged output,
 parsed directives, registered nodes, page faults, and the final DAG.
 
 Backends:
-  --backend local      SGLang server at 127.0.0.1:30000 (Qwen3-4B-AWQ)
+  --backend local      OpenAI-compatible local server (default http://127.0.0.1:30000/v1)
   --backend api        OpenAI-compatible API (OPENAI_API_KEY, OPENAI_BASE_URL)
   --backend scripted   deterministic canned replies (no network)
 """
@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
-import time
 
 import requests
 
@@ -24,57 +22,12 @@ sys.path.insert(0, "src")
 from contextdag import Session, parse_directives
 
 
-HOST = "127.0.0.1"
-PORT = 30000
-SERVER_LOG = "tmp/server.log"
-
-
-def server_alive() -> bool:
-    for endpoint in ("/health", "/get_model_info"):
-        try:
-            r = requests.get(f"http://{HOST}:{PORT}{endpoint}", timeout=2)
-            if r.status_code == 200:
-                return True
-        except requests.RequestException:
-            continue
-    return False
-
-
-def start_server() -> subprocess.Popen:
-    probe = subprocess.run(
-        [sys.executable, "-c", "import sglang"],
-        capture_output=True,
-    )
-    if probe.returncode != 0:
-        raise FileNotFoundError(
-            "sglang is not installed in this environment; run:\n"
-            "  uv sync --extra engine\n"
-            "or use --backend api / --backend scripted."
-        )
-    env = os.environ.copy()
-    cuda_home = env.get("CUDA_HOME", "/usr/local/cuda")
-    env["CUDA_HOME"] = cuda_home
-    env["PATH"] = f"{cuda_home}/bin:{env.get('PATH', '')}"
-    cmd = [
-        sys.executable,
-        "-m", "sglang.launch_server",
-        "--model-path", "data/models/qwen3-4b-awq",
-        "--port", str(PORT), "--host", HOST,
-        "--mem-fraction-static", "0.7", "--trust-remote-code",
-    ]
-    os.makedirs("tmp", exist_ok=True)
-    log = open(SERVER_LOG, "a", encoding="utf-8")
-    print(f"[demo] SGLang not running; starting it (log: {SERVER_LOG}) ...")
-    return subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT)
-
-
-def wait_until_ready(timeout: int = 480) -> bool:
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        if server_alive():
-            return True
-        time.sleep(2)
-    return False
+LOCAL_BASE_URL = os.environ.get(
+    "LOCAL_BASE_URL", "http://127.0.0.1:30000/v1"
+)
+LOCAL_MODEL_NAME = os.environ.get(
+    "LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq"
+)
 
 
 def parse_chat_response(resp: requests.Response, endpoint: str) -> str:
@@ -116,9 +69,9 @@ def parse_chat_response(resp: requests.Response, endpoint: str) -> str:
 
 def local_generate(prompt: str) -> str:
     resp = requests.post(
-        "http://127.0.0.1:30000/v1/chat/completions",
+        f"{LOCAL_BASE_URL}/chat/completions",
         json={
-            "model": "data/models/qwen3-4b-awq",
+            "model": LOCAL_MODEL_NAME,
             "messages": [
                 {"role": "system", "content": "你是上下文感知的助手。"},
                 {"role": "user", "content": prompt},
@@ -128,7 +81,7 @@ def local_generate(prompt: str) -> str:
         },
         timeout=180,
     )
-    return parse_chat_response(resp, "local sglang")
+    return parse_chat_response(resp, "local")
 
 
 def api_generate(prompt: str) -> str:
@@ -181,29 +134,9 @@ def section(title: str, body: str = "") -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--backend", choices=["local", "api", "scripted"], default="scripted")
-    parser.add_argument("--start-server", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
 
     if args.backend == "local":
-        if args.start_server and not server_alive():
-            try:
-                start_server()
-            except FileNotFoundError as exc:
-                print(f"[demo] {exc}")
-                sys.exit(1)
-            if not wait_until_ready():
-                try:
-                    tail = "".join(open(SERVER_LOG, encoding="utf-8").readlines()[-25:])
-                except OSError:
-                    tail = ""
-                print(f"[demo] server failed to start; last log lines:\n{tail}")
-                if "flashinfer" in tail and "No such file" in tail:
-                    print(
-                        "[demo] hint: stale flashinfer JIT cache; clear it and retry:\n"
-                        "  rm -rf ~/.cache/flashinfer"
-                    )
-                sys.exit(1)
-            print("[demo] server ready.")
         model = local_generate
     elif args.backend == "api":
         model = api_generate

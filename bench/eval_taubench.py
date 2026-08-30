@@ -179,7 +179,7 @@ def main() -> None:
     parser.add_argument("--env", choices=["retail", "airline"], default="retail")
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--max-steps", type=int, default=30)
-    parser.add_argument("--out", default="tmp/eval_taubench.json")
+    parser.add_argument("--out", default="results/eval_taubench.json")
     parser.add_argument("--verbose", action="store_true", help="打印每步动作")
     parser.add_argument("--tokenizer", default="data/models/qwen3-4b-awq/tokenizer.json")
     args = parser.parse_args()
@@ -197,7 +197,7 @@ def main() -> None:
     env.user = ScriptedUser()
     tasks = env.tasks[: args.limit]
 
-    Path("tmp").mkdir(exist_ok=True)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     rows = []
     n_tasks = len(tasks)
     t0 = time.time()
