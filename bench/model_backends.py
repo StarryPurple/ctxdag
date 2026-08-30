@@ -14,9 +14,12 @@ def load_tokenize(path: str | None = None):
     if not path:
         path = os.environ.get("LOCAL_TOKENIZER_PATH")
     if not path or not os.path.exists(path):
-        model_name = os.environ.get(
-            "LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq"
-        )
+        model_name = os.environ.get("LOCAL_MODEL_NAME")
+        if not model_name:
+            base = os.environ.get(
+                "LOCAL_BASE_URL", "http://127.0.0.1:30000/v1"
+            )
+            model_name = _discover_local_model(base)
         candidate = os.path.join(model_name, "tokenizer.json")
         if os.path.exists(candidate):
             path = candidate
