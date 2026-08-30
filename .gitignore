@@ -20,3 +20,6 @@ sandbox/
 .vscode/
 *.swp
 .DS_Store
+
+# Jupyter checkpoints
+.ipynb_checkpoints/

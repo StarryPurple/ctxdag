@@ -1,0 +1,84 @@
+{
+  "workflow": "sequential_chat",
+  "metrics_url": "http://127.0.0.1:30000/metrics",
+  "protocol": {
+    "name": "sequential_chat",
+    "n_turns": 4,
+    "prompt_tokens": 838,
+    "cached_tokens": 464,
+    "cache_source": "api",
+    "metric_queries": 838,
+    "metric_hits": 464,
+    "hit_rate": 0.5536992840095465,
+    "turns": [
+      {
+        "prompt_tokens": 76,
+        "cached_tokens": 0,
+        "completion_tokens": 1,
+        "turn": 1,
+        "text_len": 71
+      },
+      {
+        "prompt_tokens": 166,
+        "cached_tokens": 64,
+        "completion_tokens": 1,
+        "turn": 2,
+        "text_len": 206
+      },
+      {
+        "prompt_tokens": 254,
+        "cached_tokens": 160,
+        "completion_tokens": 1,
+        "turn": 3,
+        "text_len": 341
+      },
+      {
+        "prompt_tokens": 342,
+        "cached_tokens": 240,
+        "completion_tokens": 1,
+        "turn": 4,
+        "text_len": 476
+      }
+    ]
+  },
+  "baseline": {
+    "name": "baseline",
+    "n_turns": 4,
+    "prompt_tokens": 838,
+    "cached_tokens": 352,
+    "cache_source": "api",
+    "metric_queries": 838,
+    "metric_hits": 352,
+    "hit_rate": 0.4200477326968974,
+    "turns": [
+      {
+        "prompt_tokens": 76,
+        "cached_tokens": 64,
+        "completion_tokens": 1,
+        "turn": 1,
+        "text_len": 71
+      },
+      {
+        "prompt_tokens": 166,
+        "cached_tokens": 16,
+        "completion_tokens": 1,
+        "turn": 2,
+        "text_len": 206
+      },
+      {
+        "prompt_tokens": 254,
+        "cached_tokens": 112,
+        "completion_tokens": 1,
+        "turn": 3,
+        "text_len": 341
+      },
+      {
+        "prompt_tokens": 342,
+        "cached_tokens": 160,
+        "completion_tokens": 1,
+        "turn": 4,
+        "text_len": 476
+      }
+    ]
+  }
+}
