@@ -11,10 +11,36 @@ import requests
 def load_tokenize(path: str | None = None):
     from tokenizers import Tokenizer
 
-    tokenizer = Tokenizer.from_file(
-        path or "data/models/qwen3-4b-awq/tokenizer.json"
-    )
+    if not path:
+        path = os.environ.get("LOCAL_TOKENIZER_PATH")
+    if not path or not os.path.exists(path):
+        model_name = os.environ.get(
+            "LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq"
+        )
+        candidate = os.path.join(model_name, "tokenizer.json")
+        if os.path.exists(candidate):
+            path = candidate
+    if not path or not os.path.exists(path):
+        raise FileNotFoundError(
+            f"tokenizer not found: {path!r}; "
+            "set LOCAL_TOKENIZER_PATH or LOCAL_MODEL_NAME"
+        )
+    tokenizer = Tokenizer.from_file(path)
     return lambda s: tokenizer.encode(s).ids, tokenizer.decode
+
+
+def _discover_local_model(base: str) -> str:
+    """Return the first model id served by an OpenAI-compatible endpoint."""
+    try:
+        resp = requests.get(f"{base}/models", timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        models = data.get("data") or []
+        if models and models[0].get("id"):
+            return models[0]["id"]
+    except Exception:
+        pass
+    return "data/models/qwen3-4b-awq"
 
 
 def _post_chat(base: str, key: str | None, payload: dict) -> dict:
@@ -36,7 +62,7 @@ def make_text_model(
     """Return ``callable(prompt) -> str``."""
     if backend == "local":
         url = base or os.environ.get("LOCAL_BASE_URL", "http://127.0.0.1:30000/v1")
-        model = os.environ.get("LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq")
+        model = os.environ.get("LOCAL_MODEL_NAME") or _discover_local_model(url)
 
         def text(prompt: str) -> str:
             body = _post_chat(
@@ -82,7 +108,7 @@ def make_agent_model(backend: str = "scripted"):
     """Return ``callable(messages, tools) -> message-dict`` (OpenAI style)."""
     if backend == "local":
         url = os.environ.get("LOCAL_BASE_URL", "http://127.0.0.1:30000/v1")
-        model = os.environ.get("LOCAL_MODEL_NAME", "data/models/qwen3-4b-awq")
+        model = os.environ.get("LOCAL_MODEL_NAME") or _discover_local_model(url)
 
         def agent(messages: list[dict], tools: list[dict] | None) -> dict:
             body = _post_chat(

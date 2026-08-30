@@ -181,7 +181,7 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=30)
     parser.add_argument("--out", default="results/eval_taubench.json")
     parser.add_argument("--verbose", action="store_true", help="打印每步动作")
-    parser.add_argument("--tokenizer", default="data/models/qwen3-4b-awq/tokenizer.json")
+    parser.add_argument("--tokenizer", default=None)
     args = parser.parse_args()
 
     tokenize, _ = load_tokenize(args.tokenizer)

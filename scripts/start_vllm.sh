@@ -10,6 +10,7 @@ PORT="${PORT:-30000}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.8}"
 ENFORCE_EAGER="${ENFORCE_EAGER:-1}"
+TOOL_CALL_PARSER="${TOOL_CALL_PARSER:-hermes}"
 
 if [[ ! -x "$VLLM_BIN" ]]; then
   echo "vllm not found at $VLLM_BIN; run 'uv sync --extra engine' first." >&2
@@ -27,7 +28,7 @@ exec "$VLLM_BIN" serve "$MODEL" \
   --enable-prefix-caching \
   --enable-prompt-tokens-details \
   --enable-auto-tool-choice \
-  --tool-call-parser qwen3_coder \
+  --tool-call-parser "$TOOL_CALL_PARSER" \
   --max-model-len "$MAX_MODEL_LEN" \
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
   "${EXTRA_ARGS[@]}"

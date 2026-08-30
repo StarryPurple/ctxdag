@@ -139,7 +139,7 @@ def main() -> None:
     parser.add_argument("--max-tokens", type=int, default=8000)
     parser.add_argument("--max-output-tokens", type=int, default=1024)
     parser.add_argument("--out", default="results/eval_longbench.json")
-    parser.add_argument("--tokenizer", default="data/models/qwen3-4b-awq/tokenizer.json")
+    parser.add_argument("--tokenizer", default=None)
     args = parser.parse_args()
 
     tokenize, decode = load_tokenize(args.tokenizer)

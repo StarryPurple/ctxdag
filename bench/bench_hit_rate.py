@@ -138,7 +138,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--tokenizer",
-        default="data/models/qwen3-4b-awq/tokenizer.json",
+        default=None,
     )
     parser.add_argument(
         "--workflow",
