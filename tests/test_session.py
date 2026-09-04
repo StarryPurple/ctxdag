@@ -40,6 +40,18 @@ class SessionTest(unittest.TestCase):
         self.assertIn("policy", ctx2.text)
         self.assertIn(x.id, ctx2.order)
 
+    def test_requiring_an_already_loaded_node_is_idempotent(self):
+        session = Session()
+        node = session.register("loaded")
+        first = session.expand(refs=[node.id], candidates=[node.id])
+
+        second = session.require(node.id)
+
+        self.assertIs(second, first)
+        self.assertEqual(session.requires_issued, 1)
+        self.assertEqual(session.page_faults, 0)
+        self.assertEqual(session.expands, 1)
+
     def test_require_outside_catalog_rejected(self):
         session = Session()
         a = session.register("aaa")

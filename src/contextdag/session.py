@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from .expand import ExpandedContext, Expander, render_node
+from .features import FeatureExtractor, FeatureRecord, FeatureStore
 from .node import DependencyError, Node
 from .registry import Registry
 from .summary import SummaryService, SummaryStore
@@ -24,11 +27,15 @@ class Session:
         catalog_size: int = 1024,
         summaries: SummaryStore | None = None,
         summary_service: SummaryService | None = None,
+        features: FeatureStore | None = None,
+        feature_extractor: FeatureExtractor | None = None,
     ) -> None:
         self.registry = registry or Registry()
         self.catalog_size = catalog_size
         self.summaries = summaries or SummaryStore()
         self.summary_service = summary_service
+        self.features = features or FeatureStore()
+        self.feature_extractor = feature_extractor
         self._expander = Expander(self.registry, self.summaries)
         self._current: ExpandedContext | None = None
         self._last_candidates: tuple[str, ...] | None = None
@@ -38,6 +45,11 @@ class Session:
         self.requires_rejected = 0
         self.catalog_chars = 0
         self.expands = 0
+
+    @property
+    def current_context(self) -> ExpandedContext | None:
+        """Last expanded context, or None before the first expansion."""
+        return self._current
 
     @property
     def current_node_ids(self) -> tuple[str, ...]:
@@ -64,6 +76,66 @@ class Session:
         if explicit is not None:
             self.summaries.set(node.id, explicit, source="explicit")
         return node
+
+    def index_node(
+        self,
+        node_id: str,
+        extractor: FeatureExtractor | None = None,
+    ) -> FeatureRecord:
+        """Extract and store rebuildable features outside the write path."""
+        selected = extractor or self.feature_extractor
+        if selected is None:
+            raise RuntimeError("no feature extractor configured")
+        node = self.registry.get(node_id)
+        features = selected.extract(node)
+        record = FeatureRecord(
+            node_id=node.id,
+            features=features,
+            extractor=selected.name,
+            source=selected.source,
+        )
+        self.features.set(record)
+        self.summaries.set(node.id, features.summary, source="service")
+        return record
+
+    def index_nodes(
+        self,
+        node_ids: list[str] | tuple[str, ...],
+        extractor: FeatureExtractor | None = None,
+        max_workers: int = 1,
+    ) -> tuple[FeatureRecord, ...]:
+        """Build side-table features concurrently, outside node registration.
+
+        Results retain first-request order and are committed only after every
+        extraction succeeds, so a failed batch cannot leave a partial index.
+        """
+        if max_workers < 1:
+            raise ValueError("max_workers must be at least one")
+        selected = extractor or self.feature_extractor
+        if selected is None:
+            raise RuntimeError("no feature extractor configured")
+        unique_ids = tuple(dict.fromkeys(node_ids))
+        nodes = tuple(self.registry.get(node_id) for node_id in unique_ids)
+
+        def build(node: Node) -> FeatureRecord:
+            return FeatureRecord(
+                node_id=node.id,
+                features=selected.extract(node),
+                extractor=selected.name,
+                source=selected.source,
+            )
+
+        if max_workers == 1:
+            records = tuple(build(node) for node in nodes)
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                records = tuple(executor.map(build, nodes))
+        for record in records:
+            self.features.set(record)
+            self.summaries.set(
+                record.node_id, record.features.summary, source="service"
+            )
+        return records
 
     def register_declared(
         self,
@@ -179,9 +251,42 @@ class Session:
                 f"require {node_id!r} is not in the current catalog"
             )
         refs = list(self.current_node_ids)
+        if node_id in refs:
+            return self._current
         if node_id not in refs:
             refs.append(node_id)
         self.page_faults += 1
+        return self._do_expand(
+            refs, max_depth=max_depth, candidates=self._last_candidates
+        )
+
+    def require_many(
+        self,
+        node_ids: list[str] | tuple[str, ...],
+        max_depth: int = 0,
+    ) -> ExpandedContext:
+        """Atomically validate and load several authorized nodes."""
+        requested = tuple(dict.fromkeys(node_ids))
+        self.requires_issued += len(requested)
+        invalid = [node_id for node_id in requested if node_id not in self.registry]
+        unauthorized = [
+            node_id
+            for node_id in requested
+            if self._last_candidates is not None
+            and node_id not in self._last_candidates
+        ]
+        if invalid or unauthorized:
+            self.requires_rejected += len(set(invalid + unauthorized))
+            rejected = (invalid + unauthorized)[0]
+            raise DependencyError(f"require {rejected!r} is not authorized")
+        refs = list(self.current_node_ids)
+        added = [node_id for node_id in requested if node_id not in refs]
+        if not added:
+            if self._current is None:
+                raise RuntimeError("session must be expanded before require")
+            return self._current
+        refs.extend(added)
+        self.page_faults += len(added)
         return self._do_expand(
             refs, max_depth=max_depth, candidates=self._last_candidates
         )

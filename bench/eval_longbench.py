@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
-from pathlib import Path
 
 sys.path.insert(0, "src")
 sys.path.insert(0, "bench")
@@ -28,6 +28,7 @@ from contextdag import Session  # noqa: E402
 
 from adapters.longbench import LONGBENCH_PATH, split_sections  # noqa: E402
 from eval_metrics import score_prediction, strip_think  # noqa: E402
+from measurement import mean as arithmetic_mean, new_report, save_report  # noqa: E402
 from model_backends import load_tokenize, make_text_model  # noqa: E402
 
 
@@ -38,18 +39,28 @@ def truncate(text: str, tokenize, decode, max_tokens: int) -> str:
     return decode(ids[:max_tokens])
 
 
+def question_for(rec: dict) -> str:
+    return rec.get("input") or rec.get("question", "")
+
+
+def document_for(rec: dict, tokenize, decode, max_tokens: int) -> str:
+    """Keep the question and instruction outside document truncation."""
+    suffix = "\n\n" + question_for(rec) + "\n\n" + instruction_for(rec)
+    document_budget = max(0, max_tokens - len(tokenize(suffix)))
+    normalized = rec["context"].replace("NEWLINE_CHAR", "\n")
+    return truncate(normalized, tokenize, decode, document_budget)
+
+
 def protocol_context(rec: dict, tokenize, decode, max_tokens: int, prune: bool = False):
     """Document split into nodes; question node references the sections."""
     session = Session()
-    sections = split_sections(rec["context"], 8)
+    document = document_for(rec, tokenize, decode, max_tokens)
+    sections = split_sections(document, 8)
     if prune:
         sections = sections[: max(1, len(sections) // 2)]
-    section_nodes = [
-        session.register(content=truncate(sec, tokenize, decode, max_tokens))
-        for sec in sections
-    ]
+    section_nodes = [session.register(content=section) for section in sections]
     question = session.register(
-        content=rec.get("input") or rec.get("question", ""),
+        content=question_for(rec),
         refs=[n.id for n in section_nodes],
     )
     ctx = session.expand(refs=[question.id])
@@ -72,16 +83,9 @@ RETRY_INSTRUCTION = "只输出最终答案本身，不要任何解释、思考�
 def no_headers_context(rec: dict, tokenize, decode, max_tokens: int) -> str:
     """Sections joined as plain text (same sectioning as protocol, no node
     headers), to separate 'sectioning' from 'node headers'."""
-    sections = split_sections(rec["context"], 8)
-    body = "\n\n".join(
-        truncate(sec, tokenize, decode, max_tokens) for sec in sections
-    )
-    return truncate(
-        body + "\n\n" + (rec.get("input") or ""),
-        tokenize,
-        decode,
-        max_tokens,
-    )
+    document = document_for(rec, tokenize, decode, max_tokens)
+    body = "\n\n".join(split_sections(document, 8))
+    return body + "\n\n" + question_for(rec)
 
 
 def run_condition(
@@ -100,6 +104,7 @@ def run_condition(
     t0 = time.time()
     for i, rec in enumerate(records):
         prompt = build_prompt(rec, tokenize, decode, max_tokens)
+        prompt_tokens = len(tokenize(prompt))
         raw = model(prompt)
         prediction = strip_think(raw)
         retries = 0
@@ -118,6 +123,7 @@ def run_condition(
                 "prediction": prediction[:200],
                 "raw_prediction": raw[:500],
                 "retries": retries,
+                "prompt_tokens": prompt_tokens,
             }
         )
         if on_record is not None:
@@ -138,7 +144,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--max-tokens", type=int, default=8000)
     parser.add_argument("--max-output-tokens", type=int, default=1024)
-    parser.add_argument("--out", default="results/eval_longbench.json")
+    parser.add_argument("--out", default="bench/results/eval_longbench.json")
     parser.add_argument("--tokenizer", default=None)
     args = parser.parse_args()
 
@@ -154,19 +160,27 @@ def main() -> None:
                 if len([r for r in records if r["dataset"] == name]) >= args.limit:
                     break
 
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    report = {"backend": args.backend, "conditions": {}}
+    report = new_report(
+        "longbench_quality",
+        args.backend,
+        {
+            "datasets": datasets,
+            "limit_per_dataset": args.limit,
+            "max_prompt_tokens": args.max_tokens,
+            "max_output_tokens": args.max_output_tokens,
+            "tokenizer": args.tokenizer,
+            "conditions": ["full", "protocol", "pruned", "no-headers"],
+        },
+        model=os.environ.get("LOCAL_MODEL_NAME")
+        or os.environ.get("OPENAI_MODEL")
+        or ("scripted" if args.backend == "scripted" else None),
+    )
     conditions = {
-        "full": lambda rec, t, d, m: truncate(
-            rec["context"]
-            + "\n\n"
-            + (rec.get("input") or "")
-            + "\n\n"
-            + instruction_for(rec),
-            t,
-            d,
-            m,
-        ),
+        "full": lambda rec, t, d, m: document_for(rec, t, d, m)
+        + "\n\n"
+        + question_for(rec)
+        + "\n\n"
+        + instruction_for(rec),
         "protocol": lambda rec, t, d, m: protocol_context(rec, t, d, m)
         + "\n\n"
         + instruction_for(rec),
@@ -177,6 +191,7 @@ def main() -> None:
         + "\n\n"
         + instruction_for(rec),
     }
+    completed = []
     for cond, builder in conditions.items():
         def on_record(cond, i, n, score, elapsed, scores, outputs):
             eta = elapsed / (i + 1) * (n - i - 1)
@@ -186,17 +201,18 @@ def main() -> None:
                 f"elapsed={elapsed:.0f}s eta~{eta:.0f}s",
                 flush=True,
             )
-            report["conditions"][cond] = {
-                "mean": sum(scores) / len(scores),
+            report["aggregates"][cond] = {
+                "mean_score": arithmetic_mean(scores),
                 "n": len(scores),
-                "scores": scores,
-                "outputs": outputs,
+                "prompt_tokens": sum(row["prompt_tokens"] for row in outputs),
             }
+            report["observations"] = completed + [
+                {"condition": cond, **row} for row in outputs
+            ]
             _save()
 
         def _save():
-            with open(args.out, "w") as f:
-                json.dump(report, f, ensure_ascii=False, indent=2)
+            save_report(report, args.out)
 
         mean, scores, outputs = run_condition(
             cond,
@@ -208,17 +224,18 @@ def main() -> None:
             args.max_tokens,
             on_record=on_record,
         )
-        report["conditions"][cond] = {
-            "mean": mean,
+        condition_rows = [{"condition": cond, **row} for row in outputs]
+        completed.extend(condition_rows)
+        report["observations"] = list(completed)
+        report["aggregates"][cond] = {
+            "mean_score": mean,
             "n": len(scores),
-            "scores": scores,
-            "outputs": outputs,
+            "prompt_tokens": sum(row["prompt_tokens"] for row in outputs),
         }
         _save()
         print(f"[{cond}] n={len(scores)} mean={mean:.4f}")
 
-    with open(args.out, "w") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
+    save_report(report, args.out)
     print(f"saved -> {args.out}")
 
 

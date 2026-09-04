@@ -17,17 +17,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
-from pathlib import Path
+import time
 
 import requests
 
 sys.path.insert(0, "src")
 sys.path.insert(0, "bench")
 
+from measurement import new_report, save_report  # noqa: E402
 from model_backends import _discover_local_model  # noqa: E402
 from workflows import (  # noqa: E402
     BenchSession,
@@ -70,6 +70,7 @@ def _read_cache_counters(metrics_url: str) -> tuple[int, int]:
 
 def _chat(base: str, model: str, prompt: str, max_tokens: int = 1) -> dict:
     """Send one prompt to an OpenAI-compatible chat endpoint and return usage."""
+    started = time.perf_counter()
     resp = requests.post(
         f"{base}/chat/completions",
         json={
@@ -80,6 +81,7 @@ def _chat(base: str, model: str, prompt: str, max_tokens: int = 1) -> dict:
         },
         timeout=300,
     )
+    elapsed = time.perf_counter() - started
     body = resp.json()
     if "error" in body or "detail" in body:
         raise RuntimeError(
@@ -92,6 +94,7 @@ def _chat(base: str, model: str, prompt: str, max_tokens: int = 1) -> dict:
         "cached_tokens": int(details.get("cached_tokens", 0) or 0)
         if details else 0,
         "completion_tokens": int(usage.get("completion_tokens", 0)),
+        "latency_seconds": elapsed,
     }
 
 
@@ -146,7 +149,10 @@ def summarize(
         "metric_queries": metric_queries,
         "metric_hits": metric_hits,
         "hit_rate": cached / prompt if prompt else 0.0,
-        "turns": stats,
+        "mean_latency_seconds": (
+            sum(s["latency_seconds"] for s in stats) / len(stats) if stats else 0.0
+        ),
+        "total_latency_seconds": sum(s["latency_seconds"] for s in stats),
     }
 
 
@@ -180,8 +186,12 @@ def main() -> None:
         help="also send full-context baselines for comparison",
     )
     parser.add_argument(
+        "--only", choices=["protocol", "baseline"], default=None,
+        help="run one condition so separate server cold starts stay isolated",
+    )
+    parser.add_argument(
         "--out",
-        default="results/bench_real_cache.json",
+        default="bench/results/bench_real_cache.json",
     )
     args = parser.parse_args()
 
@@ -194,29 +204,37 @@ def main() -> None:
     build(bench)
 
     print(f"\n=== 真实引擎缓存验证: {label} ===")
-    protocol_stats, p_q, p_h = run_sequence(
-        "protocol", [ctx.text for ctx in bench.ctxs], args.base, args.model, metrics_url
+    selected = [args.only] if args.only else [
+        "protocol", *(["baseline"] if args.baseline else [])
+    ]
+    result = new_report(
+        "real_prefix_cache",
+        "vllm",
+        {"workflow": args.workflow, "conditions": selected,
+         "base_url": args.base, "metrics_url": metrics_url},
+        model=args.model,
     )
-    result = {
-        "workflow": args.workflow,
-        "metrics_url": metrics_url,
-        "protocol": summarize(args.workflow, protocol_stats, p_q, p_h),
+    prompts = {
+        "protocol": [ctx.text for ctx in bench.ctxs],
+        "baseline": list(bench.baselines),
     }
-
-    if args.baseline:
-        baseline_stats, b_q, b_h = run_sequence(
-            "baseline", list(bench.baselines), args.base, args.model, metrics_url
+    for condition in selected:
+        stats, queries, hits = run_sequence(
+            condition, prompts[condition], args.base, args.model, metrics_url
         )
-        result["baseline"] = summarize("baseline", baseline_stats, b_q, b_h)
+        result["aggregates"][condition] = summarize(
+            condition, stats, queries, hits
+        )
+        result["observations"].extend(
+            {"condition": condition, **row} for row in stats
+        )
 
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
+    save_report(result, args.out)
 
     print("\n--- 汇总 ---")
     for key in ("protocol", "baseline"):
-        if key in result:
-            s = result[key]
+        if key in result["aggregates"]:
+            s = result["aggregates"][key]
             print(
                 f"{key}: {s['n_turns']} 次展开, prompt={s['prompt_tokens']}, "
                 f"cached={s['cached_tokens']} ({s['cache_source']}), "

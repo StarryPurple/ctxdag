@@ -25,4 +25,6 @@ sandbox/
 .ipynb_checkpoints/
 
 # Generated benchmark outputs
+bench/results/*.json
+bench/results/*.tmp
 results/

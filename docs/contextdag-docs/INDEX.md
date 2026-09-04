@@ -7,6 +7,9 @@
 | 文档 | 说明 |
 |---|---|
 | [RESEARCH-PLAN.md](./RESEARCH-PLAN.md) | 三层开发路线（协议层 / 引擎层 / 模型层）与测量线主线 |
+| [context-compiler.md](./context-compiler.md) | 面向 LLM serving 的 ContextDAG 编译器命题、系统边界与评测契约 |
+| [measurement-v1.md](./measurement-v1.md) | 统一实验报告契约、执行顺序与判读边界 |
+| [measurement-results.md](./measurement-results.md) | 当前正式测量结果、统计边界与阶段决策 |
 | INDEX.md（本文件） | 研究文档索引 + 文献清单 |
 
 ## 文献索引

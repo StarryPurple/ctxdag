@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import types
-from pathlib import Path
 
 # litellm stub: the tau-bench user simulator imports it, but we replace the
 # user with a scripted one, so the stub only needs to exist.
@@ -41,6 +41,7 @@ from contextdag import Session  # noqa: E402
 from tau_bench.envs.retail.env import MockRetailDomainEnv  # noqa: E402
 from tau_bench.types import Action, RESPOND_ACTION_NAME  # noqa: E402
 
+from measurement import mean, new_report, save_report, session_counters  # noqa: E402
 from model_backends import (  # noqa: E402
     load_tokenize,
     make_agent_model,
@@ -88,7 +89,8 @@ def oracle_solve(env, task_index: int, tokenize, max_steps: int = 30):
         content = "完成。" + (" " + " ".join(outputs) if outputs else "")
         resp = env.step(Action(name=RESPOND_ACTION_NAME, kwargs={"content": content}))
         reward = resp.reward
-    return {"reward": reward, "steps": steps, "prompt_tokens": prompt_tokens}
+        done = resp.done
+    return {"reward": reward, "done": done, "steps": steps, "prompt_tokens": prompt_tokens}
 
 
 def baseline_solve(
@@ -129,7 +131,7 @@ def baseline_solve(
             messages.append({"role": "user", "content": resp.observation})
         if done:
             break
-    return {"reward": reward, "steps": steps, "prompt_tokens": prompt_tokens}
+    return {"reward": reward, "done": done, "steps": steps, "prompt_tokens": prompt_tokens}
 
 
 def protocol_solve(
@@ -145,7 +147,7 @@ def protocol_solve(
     done = False
     for _ in range(max_steps):
         ctx = session.expand(refs=[prev])
-        prompt_tokens += len(tokenize(ctx.text))
+        prompt_tokens += len(tokenize(env.wiki + "\n" + ctx.text))
         messages = [
             {"role": "system", "content": env.wiki},
             {"role": "user", "content": ctx.text},
@@ -170,7 +172,13 @@ def protocol_solve(
         prev = obs_node.id
         if done:
             break
-    return {"reward": reward, "steps": steps, "prompt_tokens": prompt_tokens}
+    return {
+        "reward": reward,
+        "done": done,
+        "steps": steps,
+        "prompt_tokens": prompt_tokens,
+        "protocol": session_counters(session),
+    }
 
 
 def main() -> None:
@@ -179,7 +187,7 @@ def main() -> None:
     parser.add_argument("--env", choices=["retail", "airline"], default="retail")
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--max-steps", type=int, default=30)
-    parser.add_argument("--out", default="results/eval_taubench.json")
+    parser.add_argument("--out", default="bench/results/eval_taubench.json")
     parser.add_argument("--verbose", action="store_true", help="打印每步动作")
     parser.add_argument("--tokenizer", default=None)
     args = parser.parse_args()
@@ -197,8 +205,16 @@ def main() -> None:
     env.user = ScriptedUser()
     tasks = env.tasks[: args.limit]
 
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    rows = []
+    report = new_report(
+        "taubench_task_success",
+        args.backend,
+        {"env": args.env, "limit": args.limit, "max_steps": args.max_steps,
+         "tokenizer": args.tokenizer, "conditions": ["oracle", "baseline", "protocol"]},
+        model=os.environ.get("LOCAL_MODEL_NAME")
+        or os.environ.get("OPENAI_MODEL")
+        or ("scripted" if args.backend == "scripted" else None),
+    )
+    rows = report["observations"]
     n_tasks = len(tasks)
     t0 = time.time()
     for idx in range(n_tasks):
@@ -215,13 +231,8 @@ def main() -> None:
             env, idx, model, tokenize, args.max_steps, args.verbose
         )
         rows.append(row)
-        with open(args.out, "w") as f:
-            json.dump(
-                {"rows": rows, "n_done": len(rows), "n_total": n_tasks},
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
+        report["progress"] = {"n_done": len(rows), "n_total": n_tasks}
+        save_report(report, args.out)
         elapsed = time.time() - t0
         eta = elapsed / (idx + 1) * (n_tasks - idx - 1)
         print(
@@ -237,22 +248,20 @@ def main() -> None:
         steps = [r[key]["steps"] for r in rows]
         tokens = [r[key]["prompt_tokens"] for r in rows]
         return {
-            "success": sum(1 for v in rewards if v == 1.0) / len(rewards),
-            "mean_reward": sum(rewards) / len(rewards),
-            "mean_steps": sum(steps) / len(steps),
-            "mean_tokens": sum(tokens) / len(tokens),
+            "success_rate": mean(v == 1.0 for v in rewards),
+            "mean_reward": mean(rewards),
+            "mean_steps": mean(steps),
+            "mean_prompt_tokens": mean(tokens),
+            "total_prompt_tokens": sum(tokens),
         }
 
-    report = {
-        "backend": args.backend,
-        "n": len(rows),
-        "aggregate": {k: aggregate(k) for k in ("oracle", "baseline", "protocol")},
-        "rows": rows,
+    report["aggregates"] = {
+        key: aggregate(key) for key in ("oracle", "baseline", "protocol")
     }
-    with open(args.out, "w") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
+    report["progress"] = {"n_done": len(rows), "n_total": n_tasks}
+    save_report(report, args.out)
     print("\naggregate:")
-    for k, v in report["aggregate"].items():
+    for k, v in report["aggregates"].items():
         print(f"  {k}: {v}")
     print(f"saved -> {args.out}")
 

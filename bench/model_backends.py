@@ -9,6 +9,8 @@ import requests
 
 
 def load_tokenize(path: str | None = None):
+    if path == "char":
+        return lambda s: list(s), lambda ids: "".join(ids)
     from tokenizers import Tokenizer
 
     if not path:
@@ -61,6 +63,7 @@ def make_text_model(
     backend: str = "scripted",
     base: str | None = None,
     max_tokens: int = 512,
+    seed: int = 0,
 ):
     """Return ``callable(prompt) -> str``."""
     if backend == "local":
@@ -76,8 +79,16 @@ def make_text_model(
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": max_tokens,
                     "temperature": 0.0,
+                    "seed": seed,
                 },
             )
+            usage = body.get("usage") or {}
+            details = usage.get("prompt_tokens_details") or {}
+            text.last_usage = {
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "cached_tokens": details.get("cached_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+            }
             return body["choices"][0]["message"]["content"].strip()
 
         return text
@@ -95,8 +106,16 @@ def make_text_model(
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": max_tokens,
                     "temperature": 0.0,
+                    "seed": seed,
                 },
             )
+            usage = body.get("usage") or {}
+            details = usage.get("prompt_tokens_details") or {}
+            text.last_usage = {
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "cached_tokens": details.get("cached_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+            }
             return body["choices"][0]["message"]["content"].strip()
 
         return text
@@ -107,13 +126,76 @@ def make_text_model(
     return scripted
 
 
-def make_agent_model(backend: str = "scripted"):
+def make_chat_model(
+    backend: str = "scripted",
+    base: str | None = None,
+    max_tokens: int = 512,
+    seed: int = 0,
+):
+    """Return ``callable(messages) -> str`` while preserving message boundaries."""
+    if backend in {"local", "api"}:
+        if backend == "local":
+            url = base or os.environ.get(
+                "LOCAL_BASE_URL", "http://127.0.0.1:30000/v1"
+            )
+            key = None
+            model = (
+                os.environ.get("LOCAL_MODEL_NAME") or _discover_local_model(url)
+            )
+        else:
+            url = base or os.environ.get(
+                "OPENAI_BASE_URL", "https://api.openai.com/v1"
+            )
+            key = os.environ["OPENAI_API_KEY"]
+            model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+        def chat(messages: list[dict]) -> str:
+            body = _post_chat(
+                url,
+                key,
+                {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.0,
+                    "seed": seed,
+                },
+            )
+            usage = body.get("usage") or {}
+            details = usage.get("prompt_tokens_details") or {}
+            chat.last_usage = {
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "cached_tokens": details.get("cached_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+            }
+            return body["choices"][0]["message"]["content"].strip()
+
+        return chat
+
+    def scripted(messages: list[dict]) -> str:
+        return messages[-1].get("content", "")[:80]
+
+    return scripted
+
+
+def make_agent_model(
+    backend: str = "scripted",
+    base: str | None = None,
+    max_tokens: int = 512,
+    seed: int = 0,
+):
     """Return ``callable(messages, tools) -> message-dict`` (OpenAI style)."""
     if backend == "local":
-        url = os.environ.get("LOCAL_BASE_URL", "http://127.0.0.1:30000/v1")
+        url = base or os.environ.get(
+            "LOCAL_BASE_URL", "http://127.0.0.1:30000/v1"
+        )
         model = os.environ.get("LOCAL_MODEL_NAME") or _discover_local_model(url)
 
-        def agent(messages: list[dict], tools: list[dict] | None) -> dict:
+        def agent(
+            messages: list[dict],
+            tools: list[dict] | None,
+            tool_choice: str | None = None,
+        ) -> dict:
             body = _post_chat(
                 url,
                 None,
@@ -121,21 +203,34 @@ def make_agent_model(backend: str = "scripted"):
                     "model": model,
                     "messages": messages,
                     "tools": tools or [],
-                    "max_tokens": 512,
+                    "tool_choice": tool_choice or ("auto" if tools else "none"),
+                    "max_tokens": max_tokens,
                     "temperature": 0.0,
+                    "seed": seed,
                 },
             )
-            return body["choices"][0]["message"].model_dump() if hasattr(
-                body["choices"][0]["message"], "model_dump"
-            ) else dict(body["choices"][0]["message"])
+            usage = body.get("usage") or {}
+            details = usage.get("prompt_tokens_details") or {}
+            agent.last_usage = {
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "cached_tokens": details.get("cached_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+            }
+            return dict(body["choices"][0]["message"])
 
         return agent
     if backend == "api":
-        url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        url = base or os.environ.get(
+            "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        )
         key = os.environ["OPENAI_API_KEY"]
         model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
-        def agent(messages: list[dict], tools: list[dict] | None) -> dict:
+        def agent(
+            messages: list[dict],
+            tools: list[dict] | None,
+            tool_choice: str | None = None,
+        ) -> dict:
             body = _post_chat(
                 url,
                 key,
@@ -143,15 +238,29 @@ def make_agent_model(backend: str = "scripted"):
                     "model": model,
                     "messages": messages,
                     "tools": tools or [],
-                    "max_tokens": 512,
+                    "tool_choice": tool_choice or ("auto" if tools else "none"),
+                    "max_tokens": max_tokens,
                     "temperature": 0.0,
+                    "seed": seed,
                 },
             )
+            usage = body.get("usage") or {}
+            details = usage.get("prompt_tokens_details") or {}
+            agent.last_usage = {
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "cached_tokens": details.get("cached_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+            }
             return dict(body["choices"][0]["message"])
 
         return agent
 
-    def scripted(messages: list[dict], tools: list[dict] | None) -> dict:
+    def scripted(
+        messages: list[dict],
+        tools: list[dict] | None,
+        tool_choice: str | None = None,
+    ) -> dict:
+        del tool_choice
         return {"role": "assistant", "content": "回答：已完成。"}
 
     return scripted
