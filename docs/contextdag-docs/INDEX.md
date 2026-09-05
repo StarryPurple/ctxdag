@@ -6,6 +6,8 @@
 
 | 文档 | 说明 |
 |---|---|
+| [maskattn-results.md](./maskattn-results.md) | 真实 14B 模型的 DAG mask、分支 KV 复用与质量/成本诊断 |
+| [dag-attention.md](./dag-attention.md) | DAG attention 数值参考、缓存正确性与真实模型验证边界 |
 | [RESEARCH-PLAN.md](./RESEARCH-PLAN.md) | 三层开发路线（协议层 / 引擎层 / 模型层）与测量线主线 |
 | [context-compiler.md](./context-compiler.md) | 面向 LLM serving 的 ContextDAG 编译器命题、系统边界与评测契约 |
 | [measurement-v1.md](./measurement-v1.md) | 统一实验报告契约、执行顺序与判读边界 |

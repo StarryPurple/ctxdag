@@ -21,6 +21,7 @@ from .control import (
 from .node import DependencyError, Node, NodeError, fingerprint
 from .index import FeatureIndex, IndexedNode, LexicalFeatureIndex
 from .registry import Registry
+from .mask_attn import MaskAttn
 from .selection import KeywordSelector, NodeSelector, RecentSelector, SelectionCandidate
 from .session import Session
 from .summary import SummaryService, SummaryStore
@@ -50,6 +51,7 @@ __all__ = [
     "FeatureIndex",
     "HeuristicFeatureExtractor",
     "ModelFeatureExtractor",
+    "MaskAttn",
     "KeywordSelector",
     "IndexedNode",
     "LexicalFeatureIndex",
